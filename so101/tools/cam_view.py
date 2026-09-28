@@ -22,6 +22,8 @@ cams = {
             height=W if rot else H,
             fps=FPS,
             rotation=rot,
+            fourcc=os.environ.get("SO101_CAM_FOURCC") or None,
+            backend=int(os.environ.get("SO101_CAM_BACKEND") or 0),
         )
     )
     for name, (idx, rot) in CAMERAS.items()

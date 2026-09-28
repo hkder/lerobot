@@ -3,16 +3,25 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-set -a; source "$HERE/config.env"; set +a
+set -a; source "$HERE/config.env"; [ -f "$HERE/config.local.env" ] && source "$HERE/config.local.env"; set +a
 LEROBOT="$(cd "$HERE/.." && pwd)"
 TOOLS="$HERE/tools"
 FOLLOWER="$SO101_FOLLOWER"
 LEADER="$SO101_LEADER"
-CAMERAS="{ wrist: {type: opencv, index_or_path: $SO101_WRIST_CAM, width: 1280, height: 720, fps: 30}, top: {type: opencv, index_or_path: $SO101_TOP_CAM, width: 1280, height: 720, fps: 30} }"
+CAM_OPTS="${SO101_CAM_FOURCC:+, fourcc: $SO101_CAM_FOURCC}${SO101_CAM_BACKEND:+, backend: $SO101_CAM_BACKEND}"
+CAMERAS="{ wrist: {type: opencv, index_or_path: $SO101_WRIST_CAM, width: 1280, height: 720, fps: 30$CAM_OPTS}, top: {type: opencv, index_or_path: $SO101_TOP_CAM, width: 1280, height: 720, fps: 30$CAM_OPTS} }"
+
+# Windows COMn is /dev/ttyS(n-1) in Git Bash.
+port_exists() {
+  case "$1" in
+    COM[0-9]*) [ -e "/dev/ttyS$(( ${1#COM} - 1 ))" ] ;;
+    *) [ -e "$1" ] ;;
+  esac
+}
 
 need() {
   for port in "$@"; do
-    if [ ! -e "$port" ]; then
+    if ! port_exists "$port"; then
       echo "Not connected: $port"
       echo "  follower = 12V board (…177611), leader = 6V board (…160051). Check USB and power."
       exit 1
@@ -50,14 +59,15 @@ case "${1:-help}" in
       --display_data=true
     ;;
   check)
-    for p in "$FOLLOWER" "$LEADER"; do [ -e "$p" ] && echo "OK   $p" || echo "MISSING $p"; done
+    for p in "$FOLLOWER" "$LEADER"; do port_exists "$p" && echo "OK   $p" || echo "MISSING $p"; done
     need "$FOLLOWER"
+    port_exists "$LEADER" && export SO101_LEADER_OK=1
     run python - <<'EOF'
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 from lerobot.teleoperators.so_leader import SO101Leader, SO101LeaderConfig
 import os
 arms = [("follower", SO101Follower(SO101FollowerConfig(port=os.environ["SO101_FOLLOWER"], id="my_follower")), 11.0, 13.0)]
-if os.path.exists(os.environ["SO101_LEADER"]):
+if os.environ.get("SO101_LEADER_OK") == "1":
     arms.append(("leader", SO101Leader(SO101LeaderConfig(port=os.environ["SO101_LEADER"], id="my_leader")), 5.5, 8.0))
 for name, dev, lo, hi in arms:
     dev.bus.connect(handshake=False)
@@ -75,14 +85,15 @@ EOF
     echo "Copied leader/follower calibration to ~/.cache/huggingface/lerobot/calibration"
     ;;
   ports)
-    echo "Serial ports now:"; ls /dev/tty.usb* /dev/ttyACM* /dev/ttyUSB* 2>/dev/null || true
-    echo "Unplug one board's USB and run again to see which is which. Then edit $HERE/config.env"
+    echo "Serial ports now (serial number ends in 177611 = follower, 160051 = leader):"
+    run python -m serial.tools.list_ports -v
+    echo "Put them in $HERE/config.local.env (overrides config.env on this machine)."
     ;;
   cameras)
     rm -f "$LEROBOT"/outputs/captured_images/*.png
     run lerobot-find-cameras opencv 2>&1 | grep -E "Found|connected\.$" || true
     echo "Snapshots: $LEROBOT/outputs/captured_images"
-    open "$LEROBOT/outputs/captured_images"
+    if command -v open >/dev/null; then open "$LEROBOT/outputs/captured_images"; else explorer.exe "$(cygpath -w "$LEROBOT/outputs/captured_images")" || true; fi
     ;;
   vision)
     need "$FOLLOWER"

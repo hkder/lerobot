@@ -176,3 +176,4 @@ outputs/
 *.urdf
 *.xml
 *.part
+so101/config.local.env

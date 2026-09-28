@@ -22,9 +22,11 @@ LOST_AFTER_S = 0.5
 
 
 def open_camera():
-    cap = cv2.VideoCapture(CAM, cv2.CAP_AVFOUNDATION)
+    cap = cv2.VideoCapture(CAM, int(os.environ.get("SO101_CAM_BACKEND") or cv2.CAP_AVFOUNDATION))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    if fourcc := os.environ.get("SO101_CAM_FOURCC"):
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*fourcc))
     for _ in range(40):
         ok, frame = cap.read()
         if ok and frame.mean() > 5:
