@@ -13,6 +13,8 @@ Branch: `fix/feetech-open-position-limits` on `hkder/lerobot` (based on huggingf
 | Teleop | Works well with stiffness P=32 and no `max_relative_target`. |
 | Cameras | Wrist (index 0) and top (index 1), both 1280×720 at 30 fps. |
 | Rest pose | Saved in `so101/tools/rest.json`. The follower parks there after teleop and the tools. |
+| Windows laptop | Arms, cameras (30 fps) and teleop work. See "Windows" below. |
+| DGX Spark | GR00T installs and CUDA works. No model served yet. |
 | Next | Record demos, fine-tune GR00T N1.7 on Brev, run it on DGX Spark. |
 
 ## Hardware
@@ -37,6 +39,7 @@ Branch: `fix/feetech-open-position-limits` on `hkder/lerobot` (based on huggingf
 |---|---|
 | `so101.sh` | One command for everything. Run it with no arguments for the list. |
 | `config.env` | Serial ports and camera numbers for this machine. **Edit this on a new machine.** |
+| `config.local.env` | Optional, gitignored. Overrides `config.env` on one machine, so two laptops can share the branch. |
 | `calibration/` | Leader and follower calibration, copied into place by `so101.sh install-calibration`. |
 | `tools/rest.json` | Saved rest pose of the follower. |
 | `tools/*.py` | Helpers used by `so101.sh`: camera viewer, rest pose, one-joint calibration and teleop, logging, vision demo. |
@@ -66,6 +69,27 @@ Tested on macOS. Linux should work the same way; ports look like `/dev/ttyACM0`.
    so101/so101.sh check    # expect follower ~12V, leader ~6V, both "calibrated: yes"
    so101/so101.sh teleop
    ```
+
+### Windows
+
+Tested on Windows 11 with Git Bash. Run `so101.sh` from a Git Bash terminal, not PowerShell or cmd.
+
+1. Same `git clone` and `uv sync` as above, then `so101/so101.sh install-calibration`.
+2. Run `so101/so101.sh ports`. The boards show up as `COMn`. Tell them apart by serial number: `…5B79017761` is the follower, `…5B79016005` is the leader.
+3. Put this machine's settings in `so101/config.local.env`, not `config.env`, so the Mac settings stay intact:
+   ```bash
+   SO101_FOLLOWER=COM3
+   SO101_LEADER=COM5
+   SO101_WRIST_CAM=1
+   SO101_TOP_CAM=2
+   SO101_CAM_FOURCC=MJPG
+   SO101_CAM_BACKEND=700
+   ```
+   - **Cameras:** the laptop's built-in camera takes index 0, so the arm cameras move to 1 and 2. Check with `so101/so101.sh cameras`.
+   - **`MJPG` and `700` (DirectShow) are required.** Without them, Windows picks uncompressed video and both cameras drop to about 11 fps at 720p. With them, both run at 30 fps. macOS picks MJPG by itself, so leave these empty there.
+4. Run `so101/so101.sh check`, then `so101/so101.sh teleop`.
+
+Run teleop, record and remote in a terminal you control. Tools that run commands in the background or with a timeout (like `!` in Claude Code) hide the program and Ctrl+C can't reach it. It then keeps holding the serial ports and cameras.
 
 **macOS only:** if torchcodec fails to load (`Could not load libtorchcodec`), Homebrew's FFmpeg is too new. Run `brew install ffmpeg@8` and add `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/opt/ffmpeg@8/lib` to `~/.zshrc`.
 
@@ -102,6 +126,8 @@ On `main` without this change, F2 and F4 break again.
 
 `max_relative_target=5` keeps the gap to the target so small that the shoulder can't produce enough force against gravity, so it stalls. The scripts use P=32 without it.
 
+The live camera view (`teleop-cam`, `record`) used to make the follower jerky on Windows. The loop waited for Rerun to take two 720p frames, which sometimes took 100+ ms. Logging now runs on a background thread (`src/lerobot/utils/visualization_utils.py`). With both cameras on, the worst loop went from 146 ms to 21 ms at the 60 Hz target.
+
 ## GR00T N1.7 plan
 
 ```
@@ -114,7 +140,7 @@ uv run hf auth login
 so101/so101.sh record <hf-user>/so101-pick-cube "Pick up the red cube and put it in the cup" 20
 ```
 
-**2. Fine-tune on Brev.** Use an A100 or H100 instance. Settings are from `docs/source/groot.mdx`; `new_embodiment` is the setting for robots GR00T wasn't trained on, like the SO-101.
+**2. Fine-tune on Brev.** Use an A100 or H100 instance. The Brev CLI has no Windows build, so it's installed on the Spark (`~/.local/bin/brev`, logged in to org `NCA-f50f-ernal`). The cheapest 80 GB types were `hyperstack_A100_80G` ($1.62/hr) and `hyperstack_H100` ($3.00/hr). Settings are from `docs/source/groot.mdx`; `new_embodiment` is the setting for robots GR00T wasn't trained on, like the SO-101.
 ```bash
 git clone -b fix/feetech-open-position-limits https://github.com/hkder/lerobot.git && cd lerobot
 uv sync --locked --python 3.12 --extra groot --extra training
@@ -137,18 +163,22 @@ If there are only about 20 demos, fewer steps (5k–10k) may be enough. Then als
 uv sync --locked --python 3.12 --extra groot --extra async
 uv run python -m lerobot.async_inference.policy_server --host=0.0.0.0 --port=8080
 ```
-Spark is ARM-based. GR00T on ARM hasn't been tested here, and one GR00T dependency (decord) only installs on x86. **Try this install early, before training.**
+Spark: `nvidia@10.31.247.142` (GB10, aarch64, Ubuntu 24.04). The checkout is `~/lerobot` and the server log is `~/policy_server.log`.
+- **Install works on ARM.** `decord` is skipped there, which doesn't matter: GR00T doesn't use it for inference. torch `2.11.0+cu128` is built for sm_120 and runs on the GB10 (sm_121). bf16 matmul, attention and convolution were checked.
+- **The Spark is shared with MODS/DisplayPort work, which may leave the NVIDIA driver unloaded.** If `nvidia-smi` fails, first make sure nothing MODS-related is running, then run `sudo modprobe nvidia nvidia_uvm nvidia_modeset`.
+- **Not tested yet:** loading an actual GR00T model and serving it.
 
 **4. Run the robot from the laptop:**
 ```bash
 so101/so101.sh remote <spark-host>:8080 groot <hf-user>/so101-pick-cube-groot "Pick up the red cube and put it in the cup"
 ```
-If the connection to Spark is slow (ping over 100 ms), raise `--chunk_size_threshold` in `so101.sh` from 0.5 to 0.7.
+If the connection to Spark is slow (ping over 100 ms; it was 175 ms from the Windows laptop over VPN), raise `--chunk_size_threshold` in `so101.sh` from 0.5 to 0.7.
 
 **Recording and running must match:** same cameras, same camera positions, same resolution, same task sentence.
 
 ## Open items
 
-- The GR00T install on DGX Spark (ARM) isn't tested yet.
+- GR00T installs and imports on the DGX Spark (ARM) and CUDA works, but serving a real model there isn't tested yet.
+- `so101.sh remote` still uses `--chunk_size_threshold=0.5`. Raise it to 0.7 when running from the Windows laptop (175 ms ping).
 - The robot needs a flat baseboard (plywood or MDF, about 40×60 cm, 18 mm thick) with a non-slip mat. It slides on the rounded desk edge, which also shifts the camera views between recordings.
 - The upstream issue (#3585) is waiting on a maintainer reply. Only open a PR if they want this change.
