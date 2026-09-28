@@ -238,11 +238,12 @@ class FeetechMotorsBus(SerialMotorsBus):
         if self.protocol_version == 1:
             return same_ranges
 
-        same_offsets = all(
+        # Protocol 0 keeps the motors' position limits wide open (see `write_calibration`), so only the
+        # homing offsets are stored in the motors.
+        return all(
             self.calibration[motor].homing_offset == cal.homing_offset
             for motor, cal in motors_calibration.items()
         )
-        return same_ranges and same_offsets
 
     def read_calibration(self) -> dict[str, MotorCalibration]:
         offsets, mins, maxes = {}, {}, {}
@@ -268,9 +269,16 @@ class FeetechMotorsBus(SerialMotorsBus):
     def write_calibration(self, calibration_dict: dict[str, MotorCalibration], cache: bool = True) -> None:
         for motor, calibration in calibration_dict.items():
             if self.protocol_version == 0:
+                # Some STS3215 units drive away from the goal when the motor-side position limits are set
+                # together with a large homing offset. The range is still enforced in software, since
+                # `_unnormalize` clamps goals to [range_min, range_max].
+                max_res = self.model_resolution_table[self._get_motor_model(motor)] - 1
                 self.write("Homing_Offset", motor, calibration.homing_offset)
-            self.write("Min_Position_Limit", motor, calibration.range_min)
-            self.write("Max_Position_Limit", motor, calibration.range_max)
+                self.write("Min_Position_Limit", motor, 0)
+                self.write("Max_Position_Limit", motor, max_res)
+            else:
+                self.write("Min_Position_Limit", motor, calibration.range_min)
+                self.write("Max_Position_Limit", motor, calibration.range_max)
 
         if cache:
             self.calibration = calibration_dict
