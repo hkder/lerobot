@@ -140,7 +140,7 @@ uv run hf auth login
 so101/so101.sh record <hf-user>/so101-pick-cube "Pick up the red cube and put it in the cup" 20
 ```
 
-**2. Fine-tune on Brev.** Use an A100 or H100 instance. The Brev CLI has no Windows build, so it's installed on the Spark (`~/.local/bin/brev`, logged in to org `NCA-f50f-ernal`). The cheapest 80 GB types were `hyperstack_A100_80G` ($1.62/hr) and `hyperstack_H100` ($3.00/hr). Settings are from `docs/source/groot.mdx`; `new_embodiment` is the setting for robots GR00T wasn't trained on, like the SO-101.
+**2. Fine-tune on Brev.** Use an A100 or H100 instance. The Brev CLI has no Windows build, so it's installed on the Spark (`~/.local/bin/brev`, logged in to org `NCA-f50f-ernal`). `brev search` lists cheaper shadeform types (`hyperstack_*`, `massedcompute_*`), but `brev create` rejects them for this org ("not a recognized type"). Crusoe `a100-80gb.1x` ($1.98/hr, 80 GB) works: `brev create groot-ft --type a100-80gb.1x`, then `brev refresh` and `ssh groot-ft` from the Spark. On it, GR00T trains at 0.76 s/step with batch 32 (36 GB). **Stop the instance when it's idle** (`brev stop groot-ft`). Settings are from `docs/source/groot.mdx`; `new_embodiment` is the setting for robots GR00T wasn't trained on, like the SO-101.
 ```bash
 git clone -b fix/feetech-open-position-limits https://github.com/hkder/lerobot.git && cd lerobot
 uv sync --locked --python 3.12 --extra groot --extra training
@@ -153,10 +153,13 @@ uv run lerobot-train \
   --policy.use_relative_actions=true --policy.relative_exclude_joints='["gripper"]' \
   --policy.use_bf16=true --policy.device=cuda \
   --policy.push_to_hub=true --policy.repo_id=<hf-user>/so101-pick-cube-groot \
+  --policy.max_steps=20000 \
   --batch_size=64 --steps=20000 --save_freq=5000 --use_policy_training_preset=true \
   --output_dir=outputs/train/so101-pick-cube-groot
 ```
-If there are only about 20 demos, fewer steps (5k–10k) may be enough. Then also set `--policy.scheduler_decay_steps` to the same number.
+If there are only about 20 demos, fewer steps (5k–10k) may be enough. Always set `--policy.max_steps` to the same number as `--steps`: GR00T computes the warmup (5%) from `max_steps` (default 10000), not from `--steps`. There is no `scheduler_decay_steps` for GR00T; passing it fails.
+
+**The HF account needs access to `nvidia/Cosmos-Reason2-2B`.** GR00T N1.7 loads it as its backbone and it's gated (401 without access). Request access on its Hugging Face page, then `hf auth login` on every machine that trains or serves (Brev and the Spark).
 
 **3. Serve on DGX Spark:**
 ```bash
@@ -164,9 +167,11 @@ uv sync --locked --python 3.12 --extra groot --extra async
 uv run python -m lerobot.async_inference.policy_server --host=0.0.0.0 --port=8080
 ```
 Spark: `nvidia@10.31.247.142` (GB10, aarch64, Ubuntu 24.04). The checkout is `~/lerobot` and the server log is `~/policy_server.log`.
-- **Install works on ARM.** `decord` is skipped there, which doesn't matter: GR00T doesn't use it for inference. torch `2.11.0+cu128` is built for sm_120 and runs on the GB10 (sm_121). bf16 matmul, attention and convolution were checked.
+- **Install works on ARM.** `decord` is skipped there, which doesn't matter: GR00T doesn't use it for inference. torch `2.11.0+cu128` is built for sm_120 and runs on the GB10 (sm_121).
+- **After every `uv sync`, upgrade NVRTC:** `uv pip install --python .venv/bin/python "nvidia-cuda-nvrtc-cu12==12.9.*"`. torch compiles some kernels at run time (e.g. `prod()`, used by Qwen3-VL in every GR00T inference), and NVRTC 12.8 from the lockfile has no sm_121 target: `nvrtc: error: invalid value for --gpu-architecture`. `uv sync --locked` puts 12.8 back.
 - **The Spark is shared with MODS/DisplayPort work, which may leave the NVIDIA driver unloaded.** If `nvidia-smi` fails, first make sure nothing MODS-related is running, then run `sudo modprobe nvidia nvidia_uvm nvidia_modeset`.
-- **Not tested yet:** loading an actual GR00T model and serving it.
+- **Tested:** `fatdove/so101-cube-bowl_GR00T17` (GR00T N1.7, SO-101) loads in 6 s, uses 12.6 GB and predicts a 16-step chunk in ~650 ms (A100: ~150 ms). bf16 weights halve memory but don't speed it up. 16 actions at 30 fps last 533 ms, so expect short pauses between chunks.
+- **If the GPU hangs** (a process stuck as `<defunct>`, `No CUDA GPUs are available`, and `Xid 154 ... GPU Reset Required` / `GSP RPC timeout` in `sudo dmesg`), only a reboot recovers it. This happened once while loading GR00T (2026-09-28) and didn't come back after the reboot.
 
 **4. Run the robot from the laptop:**
 ```bash
@@ -178,7 +183,7 @@ If the connection to Spark is slow (ping over 100 ms; it was 175 ms from the Win
 
 ## Open items
 
-- GR00T installs and imports on the DGX Spark (ARM) and CUDA works, but serving a real model there isn't tested yet.
+- GR00T inference works on the Spark (with the NVRTC upgrade), but no robot has been driven through the policy server yet.
 - `so101.sh remote` still uses `--chunk_size_threshold=0.5`. Raise it to 0.7 when running from the Windows laptop (175 ms ping).
 - The robot needs a flat baseboard (plywood or MDF, about 40×60 cm, 18 mm thick) with a non-slip mat. It slides on the rounded desk edge, which also shifts the camera views between recordings.
 - The upstream issue (#3585) is waiting on a maintainer reply. Only open a PR if they want this change.
