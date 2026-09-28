@@ -9,7 +9,11 @@ TOOLS="$HERE/tools"
 FOLLOWER="$SO101_FOLLOWER"
 LEADER="$SO101_LEADER"
 CAM_OPTS="${SO101_CAM_FOURCC:+, fourcc: $SO101_CAM_FOURCC}${SO101_CAM_BACKEND:+, backend: $SO101_CAM_BACKEND}"
-CAMERAS="{ wrist: {type: opencv, index_or_path: $SO101_WRIST_CAM, width: 1280, height: 720, fps: 30$CAM_OPTS}, top: {type: opencv, index_or_path: $SO101_TOP_CAM, width: 1280, height: 720, fps: 30$CAM_OPTS} }"
+# SO101_TOP_NAME and SO101_CAM_SIZE match a model trained elsewhere, e.g. SO101_TOP_NAME=front SO101_CAM_SIZE=640x480.
+TOP_NAME="${SO101_TOP_NAME:-top}"
+CAM_SIZE="${SO101_CAM_SIZE:-1280x720}"
+CAM_W="${CAM_SIZE%x*}"; CAM_H="${CAM_SIZE#*x}"
+CAMERAS="{ wrist: {type: opencv, index_or_path: $SO101_WRIST_CAM, width: $CAM_W, height: $CAM_H, fps: 30$CAM_OPTS}, $TOP_NAME: {type: opencv, index_or_path: $SO101_TOP_CAM, width: $CAM_W, height: $CAM_H, fps: 30$CAM_OPTS} }"
 
 # Windows COMn is /dev/ttyS(n-1) in Git Bash.
 port_exists() {

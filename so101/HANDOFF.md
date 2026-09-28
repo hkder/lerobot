@@ -181,6 +181,11 @@ If the connection to Spark is slow (ping over 100 ms; it was 175 ms from the Win
 
 **Recording and running must match:** same cameras, same camera positions, same resolution, same task sentence.
 
+To try someone else's model, match its camera names and size. For example, `fatdove/so101-cube-bowl_GR00T17` expects `front` and `wrist` at 640×480. It was trained on another scene, so this only tests the plumbing:
+```bash
+SO101_TOP_NAME=front SO101_CAM_SIZE=640x480 so101/so101.sh remote 10.31.247.142:8080 groot fatdove/so101-cube-bowl_GR00T17 "Put the cube in the bowl"
+```
+
 ## Open items
 
 - GR00T inference works on the Spark (with the NVRTC upgrade), but no robot has been driven through the policy server yet.
