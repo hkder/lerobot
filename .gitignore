@@ -177,3 +177,4 @@ outputs/
 *.xml
 *.part
 so101/config.local.env
+so101/SO101.exe

@@ -52,8 +52,9 @@ Tested on macOS. Linux should work the same way; ports look like `/dev/ttyACM0`.
    ```bash
    git clone -b fix/feetech-open-position-limits https://github.com/hkder/lerobot.git ~/lerobot
    cd ~/lerobot
-   uv sync --locked --python 3.12 --extra dataset --extra feetech --extra viz --extra async
+   uv sync --locked --python 3.12 --extra dataset --extra feetech --extra viz --extra async --extra hardware
    ```
+   `hardware` brings in `pynput`, which `record` needs for its keys on Windows (macOS falls back to the terminal).
    Use Python 3.12. Python 3.14 breaks every `lerobot-*` command with `TypeError: str | None is not callable`.
 2. Copy the calibration into place:
    ```bash
@@ -88,6 +89,14 @@ Tested on Windows 11 with Git Bash. Run `so101.sh` from a Git Bash terminal, not
    - **Cameras:** the laptop's built-in camera takes index 0, so the arm cameras move to 1 and 2. Check with `so101/so101.sh cameras`.
    - **`MJPG` and `700` (DirectShow) are required.** Without them, Windows picks uncompressed video and both cameras drop to about 11 fps at 720p. With them, both run at 30 fps. macOS picks MJPG by itself, so leave these empty there.
 4. Run `so101/so101.sh check`, then `so101/so101.sh teleop`.
+
+**Operator console (GUI):** run `so101\app\build_exe.cmd` once. It builds `so101\SO101.exe` and puts an SO-101 shortcut on the desktop. On macOS, double-click `so101/SO101.command` (or run `so101/so101.sh gui`). Both install PySide6 into the project venv the first time; `uv sync` removes it again, and the launcher puts it back.
+- **Screen:** live cameras (each with an ON/OFF switch), leader and follower joint gauges with the gap, servo temperature and load, arm voltages, model-server ping, and a big E-STOP (Esc; the follower holds its pose).
+- **Tabs:** Teleop, Record (Next / Redo / Finish buttons, → / ← keys), Autonomous (runs the model on the Spark) and Tools (park, relax, save the rest pose).
+- **Fast starts:** the cameras stay open for the whole session. Teleop starts in about 1 s, and if the arms don't match, the follower first glides onto the leader's pose.
+- Code: `so101/app/` (`main.py` is the window, `backend.py` the robot side). Log: `outputs/so101_app.log`.
+
+From cmd or PowerShell, `so101\so101.cmd <command>` runs any `so101.sh` command.
 
 Run teleop, record and remote in a terminal you control. Tools that run commands in the background or with a timeout (like `!` in Claude Code) hide the program and Ctrl+C can't reach it. It then keeps holding the serial ports and cameras.
 

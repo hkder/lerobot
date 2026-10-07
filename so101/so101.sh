@@ -139,6 +139,9 @@ EOF
       --task="${5:-}" --policy_type="$2" --pretrained_name_or_path="$3" \
       --policy_device=cuda --actions_per_chunk=16 --chunk_size_threshold=0.5
     ;;
+  gui)
+    exec "$HERE/SO101.command"
+    ;;
   cam)
     echo "Live cameras in Rerun, Hz shown below and in the viewer. Ctrl+C to stop."
     run python "$TOOLS/cam_view.py" "${@:2}"
@@ -174,6 +177,7 @@ EOF
     cat <<'EOF'
 SO-101 commands (run from anywhere: ~/so101/so101.sh <command>)
 
+  gui                  operator console window (Windows: SO101.exe, macOS: SO101.command)
   teleop [P]           leader drives follower (P = stiffness, default 32)
   teleop-cam           teleop + live camera view
   install-calibration  copy the saved calibration files into place (new machine)
